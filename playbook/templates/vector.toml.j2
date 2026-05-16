@@ -1,0 +1,11 @@
+[sources.syslog]
+type = "demo_logs"
+format = "syslog"
+
+[sinks.clickhouse]
+type = "clickhouse"
+inputs = ["syslog"]
+endpoint = "http://{{ clickhouse_host }}:8123"
+database = "{{ clickhouse_database }}"
+table = "{{ clickhouse_table }}"
+skip_unknown_fields = true

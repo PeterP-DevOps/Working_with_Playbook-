@@ -1,0 +1,5 @@
+---
+vector_version: "0.36.0"
+vector_arch: "x86_64"
+vector_home: "/opt/vector"
+vector_config_dir: "/etc/vector"
