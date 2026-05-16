@@ -1,77 +1,88 @@
+---
 - name: Install Clickhouse
   hosts: clickhouse
   become: true
+
   vars:
     clickhouse_version: "22.3.3.44"
-    clickhouse_packages:
-      - name: clickhouse-common-static
-        url: "https://packages.clickhouse.com/rpm/stable/clickhouse-common-static-{{ clickhouse_version }}.x86_64.rpm"
-      - name: clickhouse-client
-        url: "https://packages.clickhouse.com/rpm/stable/clickhouse-client-{{ clickhouse_version }}.noarch.rpm"
-      - name: clickhouse-server
-        url: "https://packages.clickhouse.com/rpm/stable/clickhouse-server-{{ clickhouse_version }}.noarch.rpm"
+    clickhouse_rpms:
+      - clickhouse-common-static-{{ clickhouse_version }}.x86_64.rpm
+      - clickhouse-client-{{ clickhouse_version }}.noarch.rpm
+      - clickhouse-server-{{ clickhouse_version }}.noarch.rpm
+
   tasks:
-    - name: Get clickhouse distrib
+    - name: Download Clickhouse packages
       ansible.builtin.get_url:
-        url: "{{ item.url }}"
-        dest: "/tmp/{{ item.name }}-{{ clickhouse_version }}.rpm"
+        url: "https://packages.clickhouse.com/rpm/stable/{{ item }}"
+        dest: "/tmp/{{ item }}"
         mode: "0644"
-      loop: "{{ clickhouse_packages }}"
+      loop: "{{ clickhouse_rpms }}"
 
-    - name: Install clickhouse packages via rpm
-      ansible.builtin.command:
-        cmd: >
-          rpm -Uvh --replacepkgs --replacefiles --nosignature
-          /tmp/clickhouse-common-static-{{ clickhouse_version }}.rpm
-          /tmp/clickhouse-client-{{ clickhouse_version }}.rpm
-          /tmp/clickhouse-server-{{ clickhouse_version }}.rpm
-      args:
-        creates: /usr/bin/clickhouse-server
+    - name: Check Clickhouse binary
+      ansible.builtin.stat:
+        path: /usr/bin/clickhouse
+      register: clickhouse_binary
 
-    - name: Start clickhouse service
+    - name: Install Clickhouse packages
+      ansible.builtin.command: >
+        rpm -Uvh --nosignature
+        /tmp/clickhouse-common-static-{{ clickhouse_version }}.x86_64.rpm
+        /tmp/clickhouse-client-{{ clickhouse_version }}.noarch.rpm
+        /tmp/clickhouse-server-{{ clickhouse_version }}.noarch.rpm
+      when: not clickhouse_binary.stat.exists
+      changed_when: true
+
+    - name: Ensure Clickhouse service is running
       ansible.builtin.service:
         name: clickhouse-server
         state: started
         enabled: true
 
+
 - name: Install Vector
   hosts: vector
   become: true
+
   vars:
     vector_version: "0.34.0"
-    vector_url: "https://github.com/vectordotdev/vector/releases/download/v{{ vector_version }}/vector-{{ vector_version }}-1.x86_64.rpm"
-    clickhouse_host: "{{ hostvars['clickhouse-01']['ansible_host'] }}"
+    vector_rpm: "vector-{{ vector_version }}-1.x86_64.rpm"
+    vector_url: "https://github.com/vectordotdev/vector/releases/download/v{{ vector_version }}/{{ vector_rpm }}"
+    clickhouse_host: "{{ hostvars[groups['clickhouse'][0]].ansible_host | default(groups['clickhouse'][0]) }}"
     clickhouse_database: "logs"
     clickhouse_table: "vector_logs"
-    clickhouse_user: "default"
-    clickhouse_password: ""
+
   handlers:
     - name: restart vector
       ansible.builtin.service:
         name: vector
         state: restarted
+
   tasks:
-    - name: Download vector RPM
+    - name: Download Vector package
       ansible.builtin.get_url:
         url: "{{ vector_url }}"
-        dest: "/tmp/vector-{{ vector_version }}.rpm"
+        dest: "/tmp/{{ vector_rpm }}"
         mode: "0644"
 
-    - name: Install vector package
-      ansible.builtin.command: yum localinstall -y /tmp/vector-{{ vector_version }}.rpm
-      register: vector_install
-      changed_when: vector_install.rc == 0
-      args:
-        creates: /etc/vector/vector.toml
+    - name: Check Vector binary
+      ansible.builtin.stat:
+        path: /usr/bin/vector
+      register: vector_binary
 
-    - name: Deploy vector config
+    - name: Install Vector package
+      ansible.builtin.command: >
+        rpm -Uvh --nosignature /tmp/{{ vector_rpm }}
+      when: not vector_binary.stat.exists
+      changed_when: true
+
+    - name: Deploy Vector config
       ansible.builtin.template:
         src: vector.toml.j2
         dest: /etc/vector/vector.toml
         mode: "0644"
       notify: restart vector
 
-    - name: Ensure vector service is started
+    - name: Ensure Vector service is running
       ansible.builtin.service:
         name: vector
         state: started
